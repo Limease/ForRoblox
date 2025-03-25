@@ -1,0 +1,422 @@
+-- Advanced Fly+TP Cheat with Working Player List
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+
+-- CONFIG --
+local FLY_SPEED = 50
+local DOUBLE_JUMP_DELAY = 0.3
+local FLY_DURATION = 0 -- 0 = infinite
+local TP_OFFSET = Vector3.new(0, 15, 0)
+local ESP_COLOR = Color3.fromRGB(0, 255, 0)
+local FLY_KEY = Enum.KeyCode.F
+local TP_KEY = Enum.KeyCode.T
+local ESP_KEY = Enum.KeyCode.G
+local GUI_KEY = Enum.KeyCode.RightShift
+-- END CONFIG --
+
+-- Core Variables --
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+local Camera = workspace.CurrentCamera
+
+local isFlying = false
+local espEnabled = true
+local flyConnection = nil
+local bodyVelocity = nil
+local lastJumpTime = 0
+local jumpCount = 0
+local playerListGUI = nil
+
+-- SIMPLE TELEPORT FUNCTION --
+local function teleportToPlayer(target)
+    if not target or not target.Character then return end
+    
+    local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    
+    -- Simple direct teleport
+    RootPart.CFrame = CFrame.new(targetRoot.Position + TP_OFFSET)
+    
+    if playerListGUI then
+        playerListGUI.Enabled = false
+    end
+end
+
+-- PLAYER LIST GUI --
+local function createPlayerListGUI()
+    if playerListGUI then playerListGUI:Destroy() end
+    
+    playerListGUI = Instance.new("ScreenGui")
+    playerListGUI.Name = "PlayerListGUI"
+    playerListGUI.Parent = CoreGui
+    playerListGUI.ResetOnSpawn = false
+    playerListGUI.Enabled = false
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0.3, 0, 0.6, 0)
+    mainFrame.Position = UDim2.new(0.35, 0, 0.2, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    mainFrame.BackgroundTransparency = 0.2
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = playerListGUI
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+
+    local title = Instance.new("TextLabel")
+    title.Text = "PLAYER LIST - CLICK TO TELEPORT"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 18
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, 0, 0.1, 0)
+    title.Parent = mainFrame
+
+    local closeButton = Instance.new("TextButton")
+    closeButton.Text = "X"
+    closeButton.Size = UDim2.new(0.1, 0, 0.1, 0)
+    closeButton.Position = UDim2.new(0.9, 0, 0, 0)
+    closeButton.Font = Enum.Font.GothamBold
+    closeButton.TextSize = 18
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundTransparency = 1
+    closeButton.Parent = mainFrame
+
+    closeButton.MouseButton1Click:Connect(function()
+        playerListGUI.Enabled = false
+    end)
+
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, -10, 0.8, -10)
+    scrollFrame.Position = UDim2.new(0, 5, 0.1, 5)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.ScrollBarThickness = 8
+    scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scrollFrame.Parent = mainFrame
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 5)
+    listLayout.Parent = scrollFrame
+
+    -- Create buttons for all players
+    local function createPlayerButtons()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= Player then
+                local button = Instance.new("TextButton")
+                button.Name = player.Name
+                button.Text = player.Name
+                button.Size = UDim2.new(1, -10, 0, 40)
+                button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+                button.BorderSizePixel = 0
+                button.TextColor3 = Color3.new(1, 1, 1)
+                button.Font = Enum.Font.Gotham
+                button.TextSize = 14
+                button.AutoButtonColor = true
+                button.Parent = scrollFrame
+                
+                button.MouseButton1Click:Connect(function()
+                    teleportToPlayer(player)
+                end)
+            end
+        end
+    end
+
+    -- Initial creation
+    createPlayerButtons()
+    
+    -- Update when players join/leave
+    Players.PlayerAdded:Connect(function(player)
+        if player ~= Player then
+            local button = Instance.new("TextButton")
+            button.Name = player.Name
+            button.Text = player.Name
+            button.Size = UDim2.new(1, -10, 0, 40)
+            button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            button.BorderSizePixel = 0
+            button.TextColor3 = Color3.new(1, 1, 1)
+            button.Font = Enum.Font.Gotham
+            button.TextSize = 14
+            button.AutoButtonColor = true
+            button.Parent = scrollFrame
+            
+            button.MouseButton1Click:Connect(function()
+                teleportToPlayer(player)
+            end)
+        end
+    end)
+    
+    Players.PlayerRemoving:Connect(function(player)
+        local button = scrollFrame:FindFirstChild(player.Name)
+        if button then
+            button:Destroy()
+        end
+    end)
+    
+    return playerListGUI
+end
+
+-- MAIN GUI --
+local function createMainGUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "CheatGUI"
+    screenGui.Parent = CoreGui
+    screenGui.ResetOnSpawn = false
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0.22, 0, 0.25, 0)
+    mainFrame.Position = UDim2.new(0.77, 0, 0.05, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    mainFrame.BackgroundTransparency = 0.3
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+
+    local title = Instance.new("TextLabel")
+    title.Text = "CHEAT MENU"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 18
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundTransparency = 1
+    title.Size = UDim2.new(1, 0, 0.15, 0)
+    title.Parent = mainFrame
+
+    -- Fly Toggle Button
+    local flyButton = Instance.new("TextButton")
+    flyButton.Text = "TOGGLE FLIGHT (F)"
+    flyButton.Size = UDim2.new(1, -10, 0.2, 0)
+    flyButton.Position = UDim2.new(0, 5, 0.15, 0)
+    flyButton.Font = Enum.Font.Gotham
+    flyButton.TextSize = 14
+    flyButton.TextColor3 = Color3.new(1, 1, 1)
+    flyButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    flyButton.BorderSizePixel = 0
+    flyButton.Parent = mainFrame
+
+    flyButton.MouseButton1Click:Connect(function()
+        toggleFlight(not isFlying)
+    end)
+
+    -- ESP Toggle Button
+    local espButton = Instance.new("TextButton")
+    espButton.Text = "TOGGLE ESP (G)"
+    espButton.Size = UDim2.new(1, -10, 0.2, 0)
+    espButton.Position = UDim2.new(0, 5, 0.35, 0)
+    espButton.Font = Enum.Font.Gotham
+    espButton.TextSize = 14
+    espButton.TextColor3 = Color3.new(1, 1, 1)
+    espButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    espButton.BorderSizePixel = 0
+    espButton.Parent = mainFrame
+
+    espButton.MouseButton1Click:Connect(function()
+        toggleESP(not espEnabled)
+    end)
+
+    -- Player List Button
+    local playerListButton = Instance.new("TextButton")
+    playerListButton.Text = "OPEN PLAYER LIST"
+    playerListButton.Size = UDim2.new(1, -10, 0.2, 0)
+    playerListButton.Position = UDim2.new(0, 5, 0.55, 0)
+    playerListButton.Font = Enum.Font.Gotham
+    playerListButton.TextSize = 14
+    playerListButton.TextColor3 = Color3.new(1, 1, 1)
+    playerListButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    playerListButton.BorderSizePixel = 0
+    playerListButton.Parent = mainFrame
+
+    playerListButton.MouseButton1Click:Connect(function()
+        if not playerListGUI then
+            createPlayerListGUI()
+        end
+        playerListGUI.Enabled = true
+    end)
+
+    -- Close Button
+    local closeButton = Instance.new("TextButton")
+    closeButton.Text = "CLOSE MENU"
+    closeButton.Size = UDim2.new(1, -10, 0.2, 0)
+    closeButton.Position = UDim2.new(0, 5, 0.75, 0)
+    closeButton.Font = Enum.Font.Gotham
+    closeButton.TextSize = 14
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    closeButton.BorderSizePixel = 0
+    closeButton.Parent = mainFrame
+
+    closeButton.MouseButton1Click:Connect(function()
+        mainFrame.Visible = false
+    end)
+
+    -- Toggle visibility
+    UIS.InputBegan:Connect(function(input, gameProcessed)
+        if input.KeyCode == GUI_KEY and not gameProcessed then
+            mainFrame.Visible = not mainFrame.Visible
+        end
+    end)
+
+    return mainFrame
+end
+
+-- FLIGHT SYSTEM --
+local function toggleFlight(state)
+    if state == isFlying then return end
+    
+    isFlying = state
+    
+    if isFlying then
+        -- Enable flight
+        flyEndTime = FLY_DURATION > 0 and (tick() + FLY_DURATION) or math.huge
+        
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new()
+        bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        bodyVelocity.P = 10000
+        bodyVelocity.Parent = RootPart
+        
+        flyConnection = RunService.Heartbeat:Connect(function()
+            if not Character or not RootPart or not isFlying or (FLY_DURATION > 0 and tick() > flyEndTime) then
+                toggleFlight(false)
+                return
+            end
+            
+            local moveDir = Vector3.new()
+            local camCF = Camera.CFrame
+            
+            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+            
+            bodyVelocity.Velocity = moveDir.Magnitude > 0 and moveDir.Unit * FLY_SPEED or Vector3.new()
+        end)
+    else
+        -- Disable flight
+        if flyConnection then flyConnection:Disconnect() end
+        if bodyVelocity then bodyVelocity:Destroy() end
+    end
+end
+
+-- ESP SYSTEM --
+local function toggleESP(state)
+    espEnabled = state
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= Player and player.Character then
+            local esp = player.Character:FindFirstChild("ESP_Highlight")
+            
+            if espEnabled then
+                if not esp then
+                    esp = Instance.new("Highlight")
+                    esp.Name = "ESP_Highlight"
+                    esp.FillColor = ESP_COLOR
+                    esp.OutlineColor = ESP_COLOR
+                    esp.FillTransparency = 0.5
+                    esp.Parent = player.Character
+                end
+            elseif esp then
+                esp:Destroy()
+            end
+        end
+    end
+end
+
+-- JUMP HANDLER --
+local function handleJump()
+    local now = tick()
+    
+    if now - lastJumpTime < DOUBLE_JUMP_DELAY then
+        jumpCount = jumpCount + 1
+        if jumpCount >= 2 then 
+            toggleFlight(not isFlying)
+            jumpCount = 0 
+        end
+    else
+        jumpCount = 1
+    end
+    
+    lastJumpTime = now
+end
+
+-- CHARACTER SETUP --
+local function setupCharacter(newChar)
+    Character = newChar
+    Humanoid = newChar:WaitForChild("Humanoid")
+    RootPart = newChar:WaitForChild("HumanoidRootPart")
+    
+    isFlying = false
+    jumpCount = 0
+    
+    Humanoid.StateChanged:Connect(function(_, newState)
+        if newState == Enum.HumanoidStateType.Jumping then
+            handleJump()
+        elseif newState == Enum.HumanoidStateType.Landed then
+            jumpCount = 0
+        end
+    end)
+end
+
+-- KEYBINDS --
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == FLY_KEY then
+        toggleFlight(not isFlying)
+    elseif input.KeyCode == TP_KEY then
+        -- Find nearest player for quick teleport
+        local closestPlayer, closestDist = nil, math.huge
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= Player and player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local dist = (RootPart.Position - root.Position).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+        
+        if closestPlayer then
+            teleportToPlayer(closestPlayer)
+        end
+    elseif input.KeyCode == ESP_KEY then
+        toggleESP(not espEnabled)
+    end
+end)
+
+-- INITIAL SETUP --
+createMainGUI()
+createPlayerListGUI()
+setupCharacter(Character)
+Player.CharacterAdded:Connect(setupCharacter)
+toggleESP(true)
+
+-- NOCLIP --
+RunService.Stepped:Connect(function()
+    if isFlying then
+        for _, part in ipairs(Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- NOTIFICATION --
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Fly+TP Cheat Loaded",
+    Text = string.format("Press %s to open menu\nF: Fly | T: Quick TP | G: ESP", GUI_KEY.Name),
+    Duration = 10
+})
