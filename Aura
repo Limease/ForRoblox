@@ -1,9 +1,10 @@
--- Advanced Fly+TP+ESP+TriggerBot Cheat (Final Working Version)
+-- Advanced Fly+TP+ESP+TriggerBot+Bypass+Jitter Cheat (FINAL)
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
+local TextChatService = game:GetService("TextChatService")
 
 -- CONFIG --
 local FLY_SPEED = 50
@@ -11,9 +12,11 @@ local FLY_KEY = Enum.KeyCode.F
 local TP_KEY = Enum.KeyCode.T
 local ESP_KEY = Enum.KeyCode.G
 local TRIGGERBOT_KEY = Enum.KeyCode.Z
+local JITTER_KEY = Enum.KeyCode.J
 local GUI_KEY = Enum.KeyCode.RightShift
 local ESP_COLOR = Color3.fromRGB(0, 255, 0)
 local TRIGGERBOT_DISTANCE = 1000
+local JITTER_SPEED = 70 -- Скорость вращения (60-90)
 -- END CONFIG --
 
 -- Core Variables
@@ -26,18 +29,72 @@ local Camera = workspace.CurrentCamera
 local isFlying = false
 local espEnabled = false
 local triggerBotEnabled = false
+local isJittering = false
 local flyConnection = nil
+local jitterConnection = nil
 local playerListGUI = nil
 
 -----------------
--- FLIGHT SYSTEM (FIXED) --
+-- CHAT BYPASS --
+-----------------
+do
+    local function bypassFilter(text)
+        local replacements = {
+            ["a"] = "а", ["e"] = "е", ["o"] = "о",
+            ["c"] = "с", ["x"] = "х", ["p"] = "р",
+            ["y"] = "у", ["k"] = "к"
+        }
+        
+        local zeroWidthSpace = "​"
+        local result = ""
+        
+        for i = 1, #text do
+            local char = text:sub(i, i)
+            local lowerChar = char:lower()
+            
+            if replacements[lowerChar] then
+                result = result .. (char == lowerChar and replacements[lowerChar] or replacements[lowerChar]:upper())
+            else
+                result = result .. char
+            end
+            
+            if i < #text then
+                result = result .. zeroWidthSpace
+            end
+        end
+        
+        return result
+    end
+
+    -- New chat system
+    if TextChatService then
+        local originalSend
+        originalSend = hookfunction(TextChatService.TextChannels.RBXGeneral.SendAsync, function(self, text, ...)
+            return originalSend(self, bypassFilter(text), ...)
+        end)
+    end
+    
+    -- Legacy chat system
+    local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+    if chatEvents then
+        local sayMsg = chatEvents:FindFirstChild("SayMessageRequest")
+        if sayMsg then
+            local originalFire
+            originalFire = hookfunction(sayMsg.FireServer, function(_, msg, ...)
+                return originalFire(_, bypassFilter(msg), ...)
+            end)
+        end
+    end
+end
+
+-----------------
+-- FLIGHT SYSTEM --
 -----------------
 local function toggleFlight(state)
     if state == isFlying then return end
     isFlying = state
     
     if isFlying then
-        -- Создаем элементы управления полетом
         local bg = Instance.new("BodyGyro")
         bg.Name = "FlightGyro"
         bg.P = 10000
@@ -53,7 +110,6 @@ local function toggleFlight(state)
         bv.P = 10000
         bv.Parent = RootPart
         
-        -- Отключаем гравитацию
         local gravity = Instance.new("BodyForce")
         gravity.Name = "AntiGravity"
         gravity.Force = Vector3.new(0, workspace.Gravity * RootPart:GetMass(), 0)
@@ -62,7 +118,6 @@ local function toggleFlight(state)
         flyConnection = RunService.Heartbeat:Connect(function()
             if not isFlying or not Character or not RootPart then return end
             
-            -- Получаем направление движения
             local direction = Vector3.new()
             local camCF = Camera.CFrame
             
@@ -73,7 +128,6 @@ local function toggleFlight(state)
             if UIS:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0, 1, 0) end
             if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0, 1, 0) end
             
-            -- Обновляем скорость и вращение
             if direction.Magnitude > 0 then
                 bv.Velocity = direction.Unit * FLY_SPEED
             else
@@ -82,13 +136,46 @@ local function toggleFlight(state)
             bg.CFrame = camCF
         end)
     else
-        -- Отключаем полет
         if flyConnection then flyConnection:Disconnect() end
         
         if RootPart then
             for _, v in ipairs({"FlightGyro", "FlightVelocity", "AntiGravity"}) do
                 local part = RootPart:FindFirstChild(v)
                 if part then part:Destroy() end
+            end
+        end
+    end
+end
+
+-----------------
+-- JITTER SYSTEM --
+-----------------
+local function toggleJitter(state)
+    if state == isJittering then return end
+    isJittering = state
+    
+    if isJittering then
+        Humanoid.AutoRotate = false
+        
+        for _, part in ipairs(Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+        
+        jitterConnection = RunService.Heartbeat:Connect(function(delta)
+            if not Character or not RootPart then return end
+            RootPart.CFrame = RootPart.CFrame * CFrame.Angles(0, math.rad(90 * JITTER_SPEED * delta), 0)
+        end)
+    else
+        if jitterConnection then jitterConnection:Disconnect() end
+        Humanoid.AutoRotate = true
+        
+        if Character then
+            for _, part in ipairs(Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
             end
         end
     end
@@ -225,6 +312,7 @@ end
 -----------------
 -- ESP SYSTEM --
 -----------------
+local highlights = {}
 local function toggleESP(state)
     espEnabled = state
     
@@ -238,12 +326,58 @@ local function toggleESP(state)
                     highlight.FillColor = ESP_COLOR
                     highlight.OutlineColor = ESP_COLOR
                     highlight.Parent = player.Character
+                    highlights[player] = highlight
                 end
             elseif highlight then
                 highlight:Destroy()
+                highlights[player] = nil
             end
         end
     end
+end
+
+-----------------
+-- CONTROL MENU --
+-----------------
+local function createControlMenu()
+    local gui = Instance.new("ScreenGui", CoreGui)
+    local frame = Instance.new("Frame", gui)
+    frame.Size = UDim2.new(0.2, 0, 0.35, 0)
+    frame.Position = UDim2.new(0.8, 0, 0.1, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    
+    local function addButton(text, yPos, callback)
+        local btn = Instance.new("TextButton", frame)
+        btn.Text = text
+        btn.Size = UDim2.new(0.9, 0, 0.15, 0)
+        btn.Position = UDim2.new(0.05, 0, yPos, 0)
+        btn.MouseButton1Click:Connect(function()
+            callback()
+            gui:Destroy()
+        end)
+    end
+    
+    addButton("Fly (F): " .. (isFlying and "ON" or "OFF"), 0.05, function()
+        toggleFlight(not isFlying)
+    end)
+    
+    addButton("ESP (G): " .. (espEnabled and "ON" or "OFF"), 0.21, function()
+        toggleESP(not espEnabled)
+    end)
+    
+    addButton("TriggerBot (Z): " .. (triggerBotEnabled and "ON" or "OFF"), 0.37, function()
+        triggerBotEnabled = not triggerBotEnabled
+    end)
+    
+    addButton("Jitter (J): " .. (isJittering and "ON" or "OFF"), 0.53, function()
+        toggleJitter(not isJittering)
+    end)
+    
+    addButton("Teleport (T)", 0.69, function()
+        createPlayerListGUI().Enabled = true
+    end)
+    
+    addButton("Close", 0.85, function() end)
 end
 
 -----------------
@@ -264,41 +398,10 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
         toggleESP(not espEnabled)
     elseif input.KeyCode == TRIGGERBOT_KEY then
         triggerBotEnabled = not triggerBotEnabled
+    elseif input.KeyCode == JITTER_KEY then
+        toggleJitter(not isJittering)
     elseif input.KeyCode == GUI_KEY then
-        local gui = Instance.new("ScreenGui", CoreGui)
-        local frame = Instance.new("Frame", gui)
-        frame.Size = UDim2.new(0.2, 0, 0.35, 0)
-        frame.Position = UDim2.new(0.8, 0, 0.1, 0)
-        frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        
-        local function addButton(text, yPos, callback)
-            local btn = Instance.new("TextButton", frame)
-            btn.Text = text
-            btn.Size = UDim2.new(0.9, 0, 0.15, 0)
-            btn.Position = UDim2.new(0.05, 0, yPos, 0)
-            btn.MouseButton1Click:Connect(function()
-                callback()
-                gui:Destroy()
-            end)
-        end
-        
-        addButton("Fly (F): " .. (isFlying and "ON" or "OFF"), 0.05, function()
-            toggleFlight(not isFlying)
-        end)
-        
-        addButton("ESP (G): " .. (espEnabled and "ON" or "OFF"), 0.21, function()
-            toggleESP(not espEnabled)
-        end)
-        
-        addButton("TriggerBot (Z): " .. (triggerBotEnabled and "ON" or "OFF"), 0.37, function()
-            triggerBotEnabled = not triggerBotEnabled
-        end)
-        
-        addButton("Teleport (T)", 0.53, function()
-            createPlayerListGUI().Enabled = true
-        end)
-        
-        addButton("Close", 0.69, function() end)
+        createControlMenu()
     end
 end)
 
@@ -315,12 +418,21 @@ Player.CharacterAdded:Connect(function(char)
         task.wait(0.1)
         toggleFlight(true)
     end
+    if espEnabled then
+        toggleESP(false)
+        task.wait()
+        toggleESP(true)
+    end
+    if isJittering then
+        toggleJitter(false)
+        task.wait(0.1)
+        toggleJitter(true)
+    end
 end)
 
--- Запускаем триггербот
+-- Main loops
 RunService.RenderStepped:Connect(updateTriggerBot)
 
--- NOCLIP при полете
 RunService.Stepped:Connect(function()
     if isFlying and Character then
         for _, part in ipairs(Character:GetDescendants()) do
@@ -331,8 +443,9 @@ RunService.Stepped:Connect(function()
     end
 end)
 
+-- Notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Cheat Activated",
-    Text = "F: Fly | T: Player List | G: ESP | Z: TriggerBot | RightShift: Menu",
+    Title = "Ultimate Cheat Activated",
+    Text = "F: Fly | T: TP Menu | G: ESP | Z: Trigger | J: Jitter | RightShift: Menu",
     Duration = 5
 })
